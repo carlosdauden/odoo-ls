@@ -1,4 +1,5 @@
 pub mod ast_utils;
+pub mod override_markers;
 pub mod completion;
 pub mod definition;
 pub mod document_symbols;

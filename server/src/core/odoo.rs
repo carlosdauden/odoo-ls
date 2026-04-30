@@ -6,6 +6,7 @@ use crate::core::module_load_order::sort_by_load_order;
 use crate::core::xml_data::OdooData;
 use crate::core::xml_validation::XmlValidator;
 use crate::features::document_symbols::DocumentSymbolFeature;
+use crate::features::override_markers::compute_and_publish_override_markers;
 use crate::features::references::ReferenceFeature;
 use crate::features::workspace_symbols::WorkspaceSymbolFeature;
 use crate::fifo_ptr_weak_hash_set::FifoPtrWeakHashSet;
@@ -781,6 +782,8 @@ impl SyncOdoo {
                     }
                 }
                 let typ = sym_rc.borrow().typ();
+                let is_python_file = matches!(typ, SymType::FILE | SymType::PACKAGE(_));
+                let sym_for_markers = if is_python_file { Some(sym_rc.clone()) } else { None };
                 match typ {
                     SymType::XML_FILE => {
                         let mut validator = XmlValidator::new(entry.as_ref().unwrap(), sym_rc);
@@ -790,6 +793,9 @@ impl SyncOdoo {
                         let mut validator = PythonValidator::new(entry.unwrap(), sym_rc);
                         validator.validate(session);
                     }
+                }
+                if let Some(sym) = sym_for_markers {
+                    compute_and_publish_override_markers(session, &sym);
                 }
                 continue;
             }

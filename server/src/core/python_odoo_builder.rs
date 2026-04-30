@@ -76,7 +76,8 @@ impl PythonOdooBuilder {
                 range: std::ops::Range::<usize> {
                     start: self.symbol.borrow().range().start().to_usize(),
                     end: self.symbol.borrow().range().end().to_usize(),
-                }
+                },
+                view_fields: vec![],
             }));
         }
         match session.sync_odoo.models.get(&model_name).cloned(){

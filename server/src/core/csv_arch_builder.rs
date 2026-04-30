@@ -113,7 +113,8 @@ impl CsvArchBuilder {
             range: core::ops::Range{
                 start: record.position().unwrap().byte() as usize,
                 end: last_end as usize
-            }
+            },
+            view_fields: vec![],
         })
     }
 }

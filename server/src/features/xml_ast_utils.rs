@@ -88,16 +88,40 @@ impl XmlAstUtils {
                 }
             }
         }
+        // For ir.ui.view records, pre-scan children to find the view's target model
+        // so that Ctrl+click on fields inside the arch navigates to the correct model's field
+        if node.attribute("model") == Some("ir.ui.view") {
+            for child in node.children().filter(|n| n.is_element() && n.tag_name().name() == "field") {
+                if child.attribute("name") == Some("model") {
+                    if let Some(text) = child.children().find(|n| n.is_text()).and_then(|n| n.text()) {
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() {
+                            ctxt.insert(S!("view_arch_model"), ContextValue::STRING(trimmed.to_string()));
+                        }
+                    }
+                }
+            }
+        }
         for child in node.children() {
             XmlAstUtils::visit_node(session, &child, offset, from_module.clone(), ctxt, results, on_dep_only);
         }
         ctxt.remove(&S!("record_model"));
+        ctxt.remove(&S!("view_arch_model"));
     }
 
     fn visit_field(session: &mut SessionInfo<'_>, node: &Node, offset: usize, from_module: Option<Rc<RefCell<Symbol>>>, ctxt: &mut HashMap<String, ContextValue>, results: &mut (Vec<XmlAstResult>, Option<Range<usize>>), on_dep_only: bool) {
+        let mut is_arch_field = false;
         for attr in node.attributes() {
             if attr.name() == "name" {
-                ctxt.insert(S!("field_name"), ContextValue::STRING(attr.value().to_string()));
+                let field_name_val = attr.value().to_string();
+                // If this is the arch field of an ir.ui.view, swap record_model to the view's target model
+                if field_name_val == "arch" {
+                    if let Some(view_model) = ctxt.get(&S!("view_arch_model")).cloned() {
+                        ctxt.insert(S!("record_model"), view_model);
+                        is_arch_field = true;
+                    }
+                }
+                ctxt.insert(S!("field_name"), ContextValue::STRING(field_name_val.clone()));
                 if attr.range_value().start <= offset && attr.range_value().end >= offset {
                     let model_name = ctxt.get(&S!("record_model")).cloned().unwrap_or(ContextValue::STRING(S!(""))).as_string();
                     if model_name.is_empty() {
@@ -128,6 +152,10 @@ impl XmlAstUtils {
         }
         for child in node.children() {
             XmlAstUtils::visit_node(session, &child, offset, from_module.clone(), ctxt, results, on_dep_only);
+        }
+        if is_arch_field {
+            // Restore record_model to ir.ui.view after leaving arch
+            ctxt.insert(S!("record_model"), ContextValue::STRING(S!("ir.ui.view")));
         }
         ctxt.remove(&S!("field_name"));
     }

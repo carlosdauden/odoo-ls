@@ -18,6 +18,8 @@ pub struct OdooDataRecord {
     pub xml_id: Option<OYarn>,
     pub fields: Vec<OdooDataField>,
     pub range: Range<usize>,
+    /// Field names used inside the view arch (only populated for ir.ui.view records)
+    pub view_fields: Vec<(OYarn, Range<usize>)>,
 }
 
 #[derive(Debug, Clone)]

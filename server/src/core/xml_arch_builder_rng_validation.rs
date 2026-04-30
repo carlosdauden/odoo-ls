@@ -215,7 +215,8 @@ impl XmlArchBuilder {
             model: (oyarn!("{}", node.attribute("model").unwrap()), node.attribute_node("model").unwrap().range()),
             xml_id: found_id.clone().map(|id| oyarn!("{}", id)),
             fields: vec![],
-            range: node.range().clone()
+            range: node.range().clone(),
+            view_fields: vec![],
         };
         for child in node.children().filter(|n| n.is_element()) {
             if let Some(field) = self.load_field(session, &child, diagnostics) {
@@ -227,6 +228,13 @@ impl XmlArchBuilder {
                         range: Range { start: Position::new(child.range().start as u32, 0), end: Position::new(child.range().end as u32, 0) },
                         ..diagnostic.clone()
                     });
+                }
+            }
+        }
+        if data.model.0.as_str() == "ir.ui.view" {
+            for child in node.children().filter(|n| n.is_element() && n.tag_name().name() == "field") {
+                if child.attribute("name") == Some("arch") {
+                    collect_view_field_names(&child, &mut data.view_fields);
                 }
             }
         }
@@ -591,5 +599,19 @@ impl XmlArchBuilder {
             }
         }
         true
+    }
+}
+
+fn collect_view_field_names(node: &Node, view_fields: &mut Vec<(crate::constants::OYarn, std::ops::Range<usize>)>) {
+    for child in node.children().filter(|n| n.is_element()) {
+        if child.tag_name().name() == "field" {
+            if let Some(name_attr) = child.attribute_node("name") {
+                view_fields.push((oyarn!("{}", name_attr.value()), name_attr.range_value()));
+            }
+            // Do not recurse into <field> elements to avoid collecting sub-model fields
+            // (e.g. fields inside an inline One2many/Many2many sub-view)
+        } else {
+            collect_view_field_names(&child, view_fields);
+        }
     }
 }

@@ -241,6 +241,37 @@ impl XmlValidator {
         //         None
         //     ));
         // }
+
+        // Validate field names used inside the view arch (for ir.ui.view records)
+        if !xml_data_record.view_fields.is_empty() {
+            let view_model_name = xml_data_record.fields.iter()
+                .find(|f| f.name.as_str() == "model")
+                .and_then(|f| f.text.as_ref())
+                .map(|t| oyarn!("{}", t.trim()));
+            if let Some(vm_name) = view_model_name {
+                let from_module = self.xml_symbol.borrow().find_module();
+                let vm_model = session.sync_odoo.models.get(&vm_name).cloned();
+                let vm_model_exists = vm_model.as_ref().map(|m| m.borrow_mut().has_symbols()).unwrap_or(false);
+                if !vm_model_exists {
+                    missing_model_dependencies.insert(vm_name.clone());
+                } else {
+                    let vm_main_syms = vm_model.as_ref().unwrap().borrow().get_main_symbols(session, from_module.clone());
+                    if let Some(vm_main_sym) = vm_main_syms.into_iter().next() {
+                        let view_all_fields = Symbol::all_fields(&vm_main_sym, session, from_module);
+                        for (field_name, field_range) in &xml_data_record.view_fields {
+                            if !view_all_fields.contains_key(field_name) {
+                                if let Some(diagnostic) = create_diagnostic(session, DiagnosticCode::OLS05057, &[field_name, &vm_name]) {
+                                    diagnostics.push(Diagnostic {
+                                        range: Range { start: Position::new(field_range.start.try_into().unwrap(), 0), end: Position::new(field_range.end.try_into().unwrap(), 0) },
+                                        ..diagnostic.clone()
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn validate_menu_item(&self, _session: &mut SessionInfo, _module: &Rc<RefCell<Symbol>>, _xml_data_menu_item: &XmlDataMenuItem, _diagnostics: &mut Vec<Diagnostic>, _dependencies: &mut Vec<Rc<RefCell<Symbol>>>, _model_dependencies: &mut Vec<Rc<RefCell<Model>>>, _missing_model_dependencies: &mut HashSet<OYarn>) {
