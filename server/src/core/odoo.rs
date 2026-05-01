@@ -1448,6 +1448,10 @@ impl Odoo {
         if session.sync_odoo.state_init == InitState::NOT_READY {
             return Ok(None);
         }
+        info!("GoToDefinition requested on {} at {} - {}",
+            params.text_document_position_params.text_document.uri.to_string(),
+            params.text_document_position_params.position.line,
+            params.text_document_position_params.position.character);
         session.log_message(MessageType::INFO, format!("GoToDefinition requested on {} at {} - {}",
             params.text_document_position_params.text_document.uri.to_string(),
             params.text_document_position_params.position.line,

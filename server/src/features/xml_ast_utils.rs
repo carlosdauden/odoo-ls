@@ -1,6 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
 use roxmltree::Node;
+use tracing::info;
 
 use crate::{constants::OYarn, core::{evaluation::ContextValue, odoo::SyncOdoo, symbols::{module_symbol::ModuleSymbol, symbol::Symbol}, xml_data::OdooData}, threads::SessionInfo, Sy, S};
 
@@ -72,17 +73,21 @@ impl XmlAstUtils {
                 let model_name = attr.value().to_string();
                 ctxt.insert(S!("record_model"), ContextValue::STRING(model_name.clone()));
                 if attr.range_value().start <= offset && attr.range_value().end >= offset {
+                    info!("visit_record: model HIT '{}' range={:?} offset={}", model_name, attr.range_value(), offset);
                     if let Some(model) = session.sync_odoo.models.get(&Sy!(model_name)).cloned() {
                         let from_module = match on_dep_only {
                             true => from_module.clone(),
                             false => None,
                         };
-                        results.0.extend(model.borrow().all_symbols(session, from_module, false).iter().filter(|s| s.1.is_none()).map(|s| XmlAstResult::SYMBOL(s.0.clone())));
+                        let syms: Vec<_> = model.borrow().all_symbols(session, from_module, false).into_iter().filter(|s| s.1.is_none()).map(|s| XmlAstResult::SYMBOL(s.0.clone())).collect();
+                        info!("visit_record: adding {} model symbols", syms.len());
+                        results.0.extend(syms);
                         results.1 = Some(attr.range_value());
                     }
                 }
             } else if attr.name() == "id" {
                 if attr.range_value().start <= offset && attr.range_value().end >= offset {
+                    info!("visit_record: id HIT '{}' range={:?} offset={}", attr.value(), attr.range_value(), offset);
                     XmlAstUtils::add_xml_id_result(session, attr.value(), &from_module.as_ref().unwrap(), attr.range_value(), results, on_dep_only);
                     results.1 = Some(attr.range_value());
                 }
@@ -114,6 +119,9 @@ impl XmlAstUtils {
         for attr in node.attributes() {
             if attr.name() == "name" {
                 let field_name_val = attr.value().to_string();
+                info!("visit_field: name='{}' range={:?} offset={} record_model={:?} view_arch_model={:?}",
+                    field_name_val, attr.range_value(), offset,
+                    ctxt.get(&S!("record_model")), ctxt.get(&S!("view_arch_model")));
                 // If this is the arch field of an ir.ui.view, swap record_model to the view's target model
                 if field_name_val == "arch" {
                     if let Some(view_model) = ctxt.get(&S!("view_arch_model")).cloned() {
@@ -124,27 +132,35 @@ impl XmlAstUtils {
                 ctxt.insert(S!("field_name"), ContextValue::STRING(field_name_val.clone()));
                 if attr.range_value().start <= offset && attr.range_value().end >= offset {
                     let model_name = ctxt.get(&S!("record_model")).cloned().unwrap_or(ContextValue::STRING(S!(""))).as_string();
+                    info!("visit_field: HIT offset={} model_name='{}'", offset, &model_name);
                     if model_name.is_empty() {
                         continue;
                     }
-                    if let Some(model) = session.sync_odoo.models.get(&Sy!(model_name)).cloned() {
+                    if let Some(model) = session.sync_odoo.models.get(&Sy!(model_name.clone())).cloned() {
                         let from_module = match on_dep_only {
                             true => from_module.clone(),
                             false => None,
                         };
-                        for symbol in model.borrow().all_symbols(session, from_module, true) {
+                        let all_syms = model.borrow().all_symbols(session, from_module, true);
+                        info!("visit_field: all_symbols count={} for model={}", all_syms.len(), &model_name);
+                        for symbol in all_syms {
                             if symbol.1.is_none() {
                                 let content = symbol.0.borrow().get_content_symbol(attr.value(), u32::MAX);
+                                info!("visit_field: get_content_symbol('{}') returned {} symbols", attr.value(), content.symbols.len());
                                 for symbol in content.symbols.iter() {
                                     results.0.push(XmlAstResult::SYMBOL(symbol.clone()));
                                 }
                             }
                         }
                         results.1 = Some(attr.range_value());
+                    } else {
+                        info!("visit_field: model '{}' NOT found in session.sync_odoo.models", &model_name);
                     }
                 }
             } else if attr.name() == "ref" {
+                info!("visit_field: ref='{}' range={:?} offset={}", attr.value(), attr.range_value(), offset);
                 if attr.range_value().start <= offset && attr.range_value().end >= offset {
+                    info!("visit_field: ref HIT, calling add_xml_id_result");
                     XmlAstUtils::add_xml_id_result(session, attr.value(), &from_module.as_ref().unwrap(), attr.range_value(), results, on_dep_only);
                     results.1 = Some(attr.range_value());
                 }
@@ -212,6 +228,7 @@ impl XmlAstUtils {
     }
 
     fn add_model_result(session: &mut SessionInfo, node: &Node, from_module: Option<Rc<RefCell<Symbol>>>, results: &mut (Vec<XmlAstResult>, Option<Range<usize>>), on_dep_only: bool) {
+        info!("add_model_result: model text='{}' range={:?}", node.text().unwrap_or(""), node.range());
         if let Some(model) = session.sync_odoo.models.get(node.text().unwrap()).cloned() {
             let from_module = match on_dep_only {
                 true => from_module.clone(),

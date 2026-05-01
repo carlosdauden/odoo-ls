@@ -1,4 +1,5 @@
 use lsp_types::{GotoDefinitionResponse, LocationLink, Range};
+use tracing::info;
 use ruff_python_ast::{Expr, ExprCall};
 use ruff_text_size::TextSize;
 use std::path::PathBuf;
@@ -317,11 +318,13 @@ impl DefinitionFeature {
         character: u32
     ) -> Option<GotoDefinitionResponse> {
         let offset = file_info.borrow().position_to_offset(line, character, session.sync_odoo.encoding);
+        info!("get_location_xml: line={} char={} offset={}", line, character, offset);
         let data = file_info.borrow().file_info_ast.borrow().text_document.as_ref().unwrap().contents().to_string();
         let document = roxmltree::Document::parse(&data);
         if let Ok(document) = document {
             let root = document.root_element();
             let (symbols, link_range) = XmlAstUtils::get_symbols(session, file_symbol, root, offset, true);
+            info!("get_location_xml: symbols={} link_range={:?}", symbols.len(), link_range);
             if symbols.is_empty() {
                 return None;
             }
@@ -345,6 +348,7 @@ impl DefinitionFeature {
                                 } else {
                                     None
                                 };
+                                info!("get_location_xml: LocationLink origin_selection_range={:?} target={}:{:?}", link_range, full_path, range);
                                 links.push(LocationLink{
                                     origin_selection_range: link_range,
                                     target_uri: FileMgr::pathname2uri(&full_path),
