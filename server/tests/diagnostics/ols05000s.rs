@@ -38,7 +38,7 @@ fn test_ols05000s_xml_file() {
         assert!(code == &S!(ols_code));
         assert!(diag.severity.is_some_and(|s| s == DiagnosticSeverity::ERROR));
     };
-    // OLS05001 - Disabled TODO: Re-enable when OLS05001 is implemented
+    check_xml_diag("OLS05001", 29);
     check_xml_diag("OLS05003", 25);
     check_xml_diag("OLS05004", 36);
     check_xml_diag("OLS05005", 38);
@@ -91,6 +91,10 @@ fn test_ols05000s_xml_file() {
     check_xml_diag("OLS05057", 91);
     check_xml_diag("OLS05055", 92);
     check_xml_diag("OLS05056", 93);
+    check_xml_diag("OLS05057", 94); // arch field typo with explicit model
+    check_xml_diag("OLS05057", 95); // arch field typo resolved via inherit_id
+    check_xml_diag("OLS05001", 96); // template inherit_id missing
+    check_xml_diag("OLS05054", 97); // template groups missing
 }
 
 #[test]

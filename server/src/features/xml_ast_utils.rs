@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
+use std::{cell::RefCell, collections::{HashMap, HashSet}, ops::Range, rc::Rc};
 
 use roxmltree::Node;
 
@@ -91,12 +91,28 @@ impl XmlAstUtils {
         // For ir.ui.view records, pre-scan children to find the view's target model
         // so that Ctrl+click on fields inside the arch navigates to the correct model's field
         if node.attribute("model") == Some("ir.ui.view") {
+            let mut found = false;
             for child in node.children().filter(|n| n.is_element() && n.tag_name().name() == "field") {
                 if child.attribute("name") == Some("model") {
                     if let Some(text) = child.children().find(|n| n.is_text()).and_then(|n| n.text()) {
                         let trimmed = text.trim();
                         if !trimmed.is_empty() {
                             ctxt.insert(S!("view_arch_model"), ContextValue::STRING(trimmed.to_string()));
+                            found = true;
+                        }
+                    }
+                }
+            }
+            // Inheriting views often omit `model` — follow inherit_id to the base view
+            if !found {
+                if let Some(inherit_ref) = node.children()
+                    .filter(|n| n.is_element() && n.tag_name().name() == "field")
+                    .find(|n| n.attribute("name") == Some("inherit_id"))
+                    .and_then(|n| n.attribute("ref"))
+                {
+                    if let Some(file_symbol) = from_module.as_ref() {
+                        if let Some(model_name) = XmlAstUtils::resolve_inherited_view_model(session, file_symbol, inherit_ref) {
+                            ctxt.insert(S!("view_arch_model"), ContextValue::STRING(model_name));
                         }
                     }
                 }
@@ -219,6 +235,34 @@ impl XmlAstUtils {
             };
             results.0.extend(model.borrow().all_symbols(session, from_module, false).iter().filter(|s| s.1.is_none()).map(|s| XmlAstResult::SYMBOL(s.0.clone())));
             results.1 = Some(node.range());
+        }
+    }
+
+    /// Walk the inherit_id chain to find the implicit model of an inheriting view.
+    /// Returns the model name (e.g. "res.partner") or None if it cannot be resolved.
+    fn resolve_inherited_view_model(session: &mut SessionInfo, from_file: &Rc<RefCell<Symbol>>, inherit_ref: &str) -> Option<String> {
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut current = inherit_ref.to_string();
+        loop {
+            if !visited.insert(current.clone()) {
+                return None;
+            }
+            let xml_ids = SyncOdoo::get_xml_ids(session, from_file, &current, &(0..0), &mut vec![]);
+            let parent_record = xml_ids.into_iter().find_map(|d| match d {
+                OdooData::RECORD(r) => Some(r),
+                _ => None,
+            })?;
+            if let Some(model) = parent_record.fields.iter()
+                .find(|f| f.name.as_str() == "model")
+                .and_then(|f| f.text.as_ref())
+                .map(|t| t.trim().to_string()) {
+                return Some(model);
+            }
+            let next = parent_record.fields.iter()
+                .find(|f| f.name.as_str() == "inherit_id")
+                .and_then(|f| f.ref_key.as_ref())
+                .map(|(v, _)| v.clone())?;
+            current = next;
         }
     }
 

@@ -92,4 +92,8 @@
     <record id="bikes.bike" model="bikes.bike"><field name="fine"/></record> <!-- OLS05057 -->
     <record id="bikes.bike" model="ir.ui.view"><field name="model">module_2.empty_model</field></record> <!-- OLS05055 -->
     <record id="bikes.bike" model="ir.ui.view"><field name="model">wrong.model</field></record> <!-- OLS05056 -->
+    <record id="view_bike_form" model="ir.ui.view"><field name="model">bikes.bike</field><field name="arch" type="xml"><form><field name="patner_id"/></form></field></record> <!-- OLS05057 (arch field typo) -->
+    <record id="view_bike_form_inh" model="ir.ui.view"><field name="inherit_id" ref="view_bike_form"/><field name="arch" type="xml"><field name="patner_id"/></field></record> <!-- OLS05057 (arch field via inherit_id) -->
+    <template id="my_template_invalid_inherit" inherit_id="missing_template_id"/> <!-- OLS05001 -->
+    <template id="my_template_invalid_groups" groups="missing_group_in_template"/> <!-- OLS05054 -->
 </odoo>

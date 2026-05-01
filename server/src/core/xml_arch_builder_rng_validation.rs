@@ -491,6 +491,32 @@ impl XmlArchBuilder {
         if node.tag_name().name() != "template" { return false; }
         //no interesting rule to check, as 'any' is valid
         let found_id = node.attribute("id").map(|s| s.to_string());
+        // Validate xml_id-bearing attributes so unresolved refs (which are clickable via Ctrl+click) are flagged
+        if let Some(inherit_attr) = node.attribute_node("inherit_id") {
+            let value = inherit_attr.value();
+            if !value.is_empty() && SyncOdoo::get_xml_ids(session, &self.xml_symbol, value, &inherit_attr.range_value(), diagnostics).is_empty() {
+                if let Some(diagnostic) = create_diagnostic(session, DiagnosticCode::OLS05001, &[]) {
+                    diagnostics.push(Diagnostic {
+                        range: Range { start: Position::new(inherit_attr.range_value().start as u32, 0), end: Position::new(inherit_attr.range_value().end as u32, 0) },
+                        ..diagnostic.clone()
+                    });
+                }
+            }
+        }
+        if let Some(groups_attr) = node.attribute_node("groups") {
+            let missing_groups = groups_attr.value().split(",")
+                .filter(|group| self.get_group_ids(session, group.trim().trim_start_matches("-"), &groups_attr, diagnostics).is_empty())
+                .collect::<Vec<&str>>()
+                .join(",");
+            if !missing_groups.is_empty() {
+                if let Some(diagnostic) = create_diagnostic(session, DiagnosticCode::OLS05054, &[&missing_groups]) {
+                    diagnostics.push(Diagnostic {
+                        range: Range { start: Position::new(groups_attr.range_value().start as u32, 0), end: Position::new(groups_attr.range_value().end as u32, 0) },
+                        ..diagnostic.clone()
+                    });
+                }
+            }
+        }
         let data = OdooData::TEMPLATE(XmlDataTemplate {
             file_symbol: Rc::downgrade(&self.xml_symbol),
             xml_id: found_id.clone().map(|id| oyarn!("{}", id)),

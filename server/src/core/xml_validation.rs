@@ -143,6 +143,7 @@ impl XmlValidator {
             // Validate field ref_key
             if let Some((ref_key_val, ref_key_range)) = field.ref_key.as_ref(){
                 let xml_id_split: Vec<_> = ref_key_val.split('.').collect();
+                let mut format_ok = false;
                 match xml_id_split.len() {
                     0 => {}, // Should not happen
                     1 => { // Local reference, check that it is not empty
@@ -154,6 +155,8 @@ impl XmlValidator {
                                     ..diagnostic
                                 });
                             }
+                        } else {
+                            format_ok = true;
                         }
 
                     },
@@ -166,12 +169,26 @@ impl XmlValidator {
                                     ..diagnostic
                                 });
                             }
+                        } else {
+                            format_ok = true;
                         }},
                     _ => { // >= 2
                         if let Some(diagnostic) = create_diagnostic(session, DiagnosticCode::OLS05051, &[ref_key_val]) {
                             diagnostics.push(Diagnostic {
                                 range: Range { start: Position::new(ref_key_range.start.try_into().unwrap(), 0), end: Position::new(ref_key_range.end.try_into().unwrap(), 0) },
                                 ..diagnostic.clone()
+                            });
+                        }
+                    }
+                }
+                // If format is valid, verify that the xml_id actually resolves
+                if format_ok && self.is_in_main_ep {
+                    let resolved = SyncOdoo::get_xml_ids(session, &self.xml_symbol, ref_key_val, ref_key_range, &mut vec![]);
+                    if resolved.is_empty() {
+                        if let Some(diagnostic) = create_diagnostic(session, DiagnosticCode::OLS05001, &[]) {
+                            diagnostics.push(Diagnostic {
+                                range: Range { start: Position::new(ref_key_range.start.try_into().unwrap(), 0), end: Position::new(ref_key_range.end.try_into().unwrap(), 0) },
+                                ..diagnostic
                             });
                         }
                     }
@@ -247,7 +264,17 @@ impl XmlValidator {
             let view_model_name = xml_data_record.fields.iter()
                 .find(|f| f.name.as_str() == "model")
                 .and_then(|f| f.text.as_ref())
-                .map(|t| oyarn!("{}", t.trim()));
+                .map(|t| t.trim())
+                .filter(|t| !t.is_empty())
+                .map(|t| oyarn!("{}", t))
+                .or_else(|| {
+                    // Fallback: inheriting views often omit `model` and rely on inherit_id
+                    let inherit_ref = xml_data_record.fields.iter()
+                        .find(|f| f.name.as_str() == "inherit_id")
+                        .and_then(|f| f.ref_key.as_ref())
+                        .map(|(v, _)| v.clone())?;
+                    self.resolve_inherited_view_model(session, &inherit_ref)
+                });
             if let Some(vm_name) = view_model_name {
                 let from_module = self.xml_symbol.borrow().find_module();
                 let vm_model = session.sync_odoo.models.get(&vm_name).cloned();
@@ -271,6 +298,33 @@ impl XmlValidator {
                     }
                 }
             }
+        }
+    }
+
+    /// Walk the inherit_id chain to find the implicit model of an inheriting view.
+    fn resolve_inherited_view_model(&self, session: &mut SessionInfo, inherit_ref: &str) -> Option<OYarn> {
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut current = inherit_ref.to_string();
+        loop {
+            if !visited.insert(current.clone()) {
+                return None; // cycle guard
+            }
+            let xml_ids = SyncOdoo::get_xml_ids(session, &self.xml_symbol, &current, &(0..0), &mut vec![]);
+            let parent_record = xml_ids.into_iter().find_map(|d| match d {
+                OdooData::RECORD(r) => Some(r),
+                _ => None,
+            })?;
+            if let Some(model) = parent_record.fields.iter()
+                .find(|f| f.name.as_str() == "model")
+                .and_then(|f| f.text.as_ref())
+                .map(|t| oyarn!("{}", t.trim())) {
+                return Some(model);
+            }
+            let next = parent_record.fields.iter()
+                .find(|f| f.name.as_str() == "inherit_id")
+                .and_then(|f| f.ref_key.as_ref())
+                .map(|(v, _)| v.clone())?;
+            current = next;
         }
     }
 
